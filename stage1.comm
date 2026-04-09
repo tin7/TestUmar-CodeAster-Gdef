@@ -1,0 +1,80 @@
+DEBUT();
+
+MAIL= LIRE_MAILLAGE(FORMAT='MED',
+                         UNITE=20)
+
+
+MODE = AFFE_MODELE(MAILLAGE=MAIL, AFFE=_F(TOUT='OUI', PHENOMENE='MECANIQUE', MODELISATION='3D'));
+
+MATE = DEFI_MATERIAU(ELAS=_F(E=210000., NU=0.3),UMAT=_F(LISTE_COEF=(210000., 0.3)
+    ));
+
+MAT = AFFE_MATERIAU(MAILLAGE=MAIL, AFFE=_F(TOUT='OUI', MATER=MATE));
+
+CHAR = AFFE_CHAR_MECA(MODELE=MODE,
+                      DDL_IMPO=(_F(GROUP_MA='Face_inf',DZ=0.0),
+                                _F(GROUP_NO='nodos_x',DY=0.0),
+                                _F(GROUP_NO='nodos_y',DX=0.0)),
+                      PRES_REP=_F(GROUP_MA='Face_sup',
+                                  PRES=-10.0))
+
+LINST = DEFI_LIST_REEL(DEBUT=0., INTERVALLE=_F(JUSQU_A=10., NOMBRE=5));
+
+
+
+RESU = STAT_NON_LINE(MODELE=MODE, 
+                     CHAM_MATER=MAT, 
+                     EXCIT=_F(CHARGE=CHAR), 
+                     COMPORTEMENT=_F(RELATION='UMAT',
+                     LIBRAIRIE='/work/libumat.so',
+                     NOM_ROUTINE='umat',
+                     NB_VARI=2,           
+                     DEFORMATION='PETIT'),
+                     INCREMENT=_F(LIST_INST=LINST), 
+                     NEWTON=_F(MATRICE='TANGENTE'),
+                     CONVERGENCE=_F(RESI_GLOB_RELA=1.E-6));
+
+
+RESU = CALC_CHAMP(reuse=RESU,
+                  RESULTAT=RESU,
+                  CONTRAINTE=('SIEF_NOEU'),
+                  DEFORMATION=('EPSI_NOEU'))
+
+
+TAB_DEPL = POST_RELEVE_T(
+    ACTION=_F(
+        OPERATION='EXTRACTION',
+        INTITULE='Desplazamientos',  
+        RESULTAT=RESU,
+        NOM_CHAM='DEPL',
+        TOUT_CMP='OUI',
+        GROUP_NO='nodo_sup',       
+        MOYE_NOEUD='OUI'
+    )
+)
+
+
+TAB_SIEF = POST_RELEVE_T(
+    ACTION=_F(
+        OPERATION='EXTRACTION',
+        INTITULE='Tensiones',        
+        RESULTAT=RESU,
+        NOM_CHAM='SIEF_NOEU',
+        TOUT_CMP='OUI',
+        GROUP_NO='nodo_sup',
+        MOYE_NOEUD='OUI'
+    )
+)
+
+
+IMPR_TABLE(TABLE=TAB_DEPL, UNITE=6)
+IMPR_TABLE(TABLE=TAB_SIEF, UNITE=6)
+
+
+IMPR_RESU(FORMAT='MED', 
+          UNITE=80, 
+          RESU=_F(MAILLAGE=MAIL, 
+                  RESULTAT=RESU, 
+                  NOM_CHAM=('DEPL', 'SIEF_NOEU', 'EPSI_NOEU')))
+
+FIN();

@@ -1,0 +1,9 @@
+P time_limit 3000
+P memory_limit 1024
+P ncpus 1
+P mpi_nbcpu 1
+P mpi_nbnoeud 1
+F comm cubo_defgrad.comm D 1
+F med Cubo.med D 20
+F rmed cubo_defgrad.rmed R 80
+F mess cubo_defgrad.message R 6

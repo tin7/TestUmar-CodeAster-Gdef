@@ -1,0 +1,31 @@
+# Archivos generados / binarios que no se suben al repo
+*.so
+*.rmed
+*.o
+*.mod
+*.pyc
+__pycache__/
+.venv/
+.visu_data/
+
+# Logs de ejecución (se regeneran al correr)
+*.log
+*.message
+message
+defgrad.dat
+
+# Archivos temporales de Code_Aster
+glob.*
+vola.*
+pick.*
+fort.*
+REPE_OUT/
+REPE_IN/
+
+# IDE / OS
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

@@ -1,0 +1,263 @@
+# coding=utf-8
+# =====================================================================
+# Neo-Hooke compresible via UMAT
+#
+# F se calcula dentro de la UMAT a partir de STRAN+DSTRAN
+# (F = I + epsilon_total, aprox. valida para DEFORMATION='PETIT')
+#
+# STATEV(1:3) = Coords GP actuales
+# STATEV(4:6) = Coords GP anteriores
+# =====================================================================
+
+import numpy as np
+from run_aster.toolbox import make_shared
+
+DEBUT()
+
+make_shared('/work/libumat_defgrad.so', '/work/umat_defgrad.for')
+
+# Limpiar log anterior
+import os
+for _fn in ('umat_defgrad.log',):
+    _p = '/work/' + _fn
+    if os.path.exists(_p):
+        os.remove(_p)
+
+# ==================================================================
+# Modelo Code_Aster
+# ==================================================================
+
+MAIL = LIRE_MAILLAGE(FORMAT='MED', UNITE=20)
+
+MODE = AFFE_MODELE(
+    MAILLAGE=MAIL,
+    AFFE=_F(TOUT='OUI', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+)
+
+MATE = DEFI_MATERIAU(
+    ELAS=_F(E=1000.0, NU=0.30),
+    UMAT=_F(LISTE_COEF=(1000.0, 0.30)),
+)
+
+MAT = AFFE_MATERIAU(
+    MAILLAGE=MAIL,
+    AFFE=_F(TOUT='OUI', MATER=MATE),
+)
+
+RAMPA = DEFI_FONCTION(
+    NOM_PARA='INST',
+    VALE=(0.0, 0.0, 1.0, 1.0),
+    PROL_DROITE='LINEAIRE',
+)
+
+CHAR = AFFE_CHAR_MECA(
+    MODELE=MODE,
+    DDL_IMPO=_F(GROUP_MA='Face_inf', DX=0.0, DY=0.0, DZ=0.0),
+    FORCE_FACE=_F(GROUP_MA='Face_sup', FX=20.0, FY=0.0, FZ=0.0),
+)
+
+# ------------------------------------------------------------------
+# Pipeline de coordenadas (para STATEV)
+# ------------------------------------------------------------------
+GEOM0 = CREA_CHAMP(
+    TYPE_CHAM='NOEU_GEOM_R',
+    OPERATION='EXTR',
+    NOM_CHAM='GEOMETRIE',
+    MAILLAGE=MAIL,
+)
+
+f_X = FORMULE(VALE='X', NOM_PARA=('X', 'Y', 'Z'))
+f_Y = FORMULE(VALE='Y', NOM_PARA=('X', 'Y', 'Z'))
+f_Z = FORMULE(VALE='Z', NOM_PARA=('X', 'Y', 'Z'))
+
+CH_F = CREA_CHAMP(
+    TYPE_CHAM='ELGA_NEUT_F',
+    OPERATION='AFFE',
+    MODELE=MODE,
+    PROL_ZERO='OUI',
+    AFFE=_F(TOUT='OUI', NOM_CMP=('X1', 'X2', 'X3'),
+            VALE_F=(f_X, f_Y, f_Z)),
+)
+
+GEOM_GP0 = CREA_CHAMP(
+    TYPE_CHAM='ELGA_GEOM_R',
+    OPERATION='DISC',
+    MODELE=MODE,
+    CHAM_GD=GEOM0,
+)
+
+CH_XYZ0 = CREA_CHAMP(
+    TYPE_CHAM='ELGA_NEUT_R',
+    OPERATION='EVAL',
+    CHAM_F=CH_F,
+    CHAM_PARA=GEOM_GP0,
+)
+
+# ------------------------------------------------------------------
+# Bucle iterativo
+# ------------------------------------------------------------------
+n_steps = 20
+dt = 1.0 / n_steps
+NSTATV = 6
+
+CH_XYZ_OLD = CH_XYZ0
+CH_XYZ_CUR = CH_XYZ0
+
+for istep in range(n_steps):
+    t_ini = istep * dt
+    t_fin = (istep + 1) * dt
+
+    print(f"\n{'='*60}")
+    print(f"  PASO {istep+1}/{n_steps}:  t = {t_ini:.4f} -> {t_fin:.4f}")
+    print(f"{'='*60}")
+
+    LINST_I = DEFI_LIST_REEL(
+        DEBUT=t_ini,
+        INTERVALLE=_F(JUSQU_A=t_fin, NOMBRE=1),
+    )
+
+    VINI_I = CREA_CHAMP(
+        TYPE_CHAM='ELGA_VARI_R',
+        OPERATION='ASSE',
+        MODELE=MODE,
+        PROL_ZERO='OUI',
+        ASSE=(
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_CUR,
+               NOM_CMP='X1', NOM_CMP_RESU='V1'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_CUR,
+               NOM_CMP='X2', NOM_CMP_RESU='V2'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_CUR,
+               NOM_CMP='X3', NOM_CMP_RESU='V3'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_OLD,
+               NOM_CMP='X1', NOM_CMP_RESU='V4'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_OLD,
+               NOM_CMP='X2', NOM_CMP_RESU='V5'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_OLD,
+               NOM_CMP='X3', NOM_CMP_RESU='V6'),
+        ),
+    )
+
+    comport = _F(
+        RELATION='UMAT',
+        LIBRAIRIE='/work/libumat_defgrad.so',
+        NOM_ROUTINE='umat',
+        NB_VARI=NSTATV,
+        DEFORMATION='PETIT',
+        TOUT='OUI',
+    )
+
+    if istep == 0:
+        RESU = STAT_NON_LINE(
+            MODELE=MODE,
+            CHAM_MATER=MAT,
+            EXCIT=_F(CHARGE=CHAR, FONC_MULT=RAMPA),
+            COMPORTEMENT=comport,
+            ETAT_INIT=_F(VARI=VINI_I),
+            INCREMENT=_F(LIST_INST=LINST_I),
+            NEWTON=_F(MATRICE='TANGENTE', REAC_ITER=1),
+            CONVERGENCE=_F(RESI_GLOB_RELA=1.0e-6, ITER_GLOB_MAXI=50),
+            ARCHIVAGE=_F(LIST_INST=LINST_I),
+            SOLVEUR=_F(METHODE='MUMPS'),
+        )
+    else:
+        RESU = STAT_NON_LINE(
+            reuse=RESU,
+            MODELE=MODE,
+            CHAM_MATER=MAT,
+            EXCIT=_F(CHARGE=CHAR, FONC_MULT=RAMPA),
+            COMPORTEMENT=comport,
+            ETAT_INIT=_F(EVOL_NOLI=RESU, VARI=VINI_I),
+            INCREMENT=_F(LIST_INST=LINST_I),
+            NEWTON=_F(MATRICE='TANGENTE', REAC_ITER=1),
+            CONVERGENCE=_F(RESI_GLOB_RELA=1.0e-6, ITER_GLOB_MAXI=50),
+            ARCHIVAGE=_F(LIST_INST=LINST_I),
+            SOLVEUR=_F(METHODE='MUMPS'),
+        )
+
+    DETRUIRE(NOM=LINST_I)
+    DETRUIRE(NOM=VINI_I)
+
+    # Actualizar coords para STATEV
+    DEPL_I = CREA_CHAMP(
+        TYPE_CHAM='NOEU_DEPL_R',
+        OPERATION='EXTR',
+        RESULTAT=RESU,
+        NOM_CHAM='DEPL',
+        INST=t_fin,
+    )
+
+    GEOM_UPD = CREA_CHAMP(
+        TYPE_CHAM='NOEU_GEOM_R',
+        OPERATION='ASSE',
+        MAILLAGE=MAIL,
+        ASSE=(
+            _F(TOUT='OUI', CHAM_GD=GEOM0,
+               CUMUL='OUI', COEF_R=1.0,
+               NOM_CMP=('X', 'Y', 'Z')),
+            _F(TOUT='OUI', CHAM_GD=DEPL_I,
+               CUMUL='OUI', COEF_R=1.0,
+               NOM_CMP=('DX', 'DY', 'DZ'),
+               NOM_CMP_RESU=('X', 'Y', 'Z')),
+        ),
+    )
+
+    GEOM_GP_N = CREA_CHAMP(
+        TYPE_CHAM='ELGA_GEOM_R',
+        OPERATION='DISC',
+        MODELE=MODE,
+        CHAM_GD=GEOM_UPD,
+    )
+
+    CH_XYZ_N = CREA_CHAMP(
+        TYPE_CHAM='ELGA_NEUT_R',
+        OPERATION='EVAL',
+        CHAM_F=CH_F,
+        CHAM_PARA=GEOM_GP_N,
+    )
+
+    DETRUIRE(NOM=DEPL_I)
+    DETRUIRE(NOM=GEOM_UPD)
+    DETRUIRE(NOM=GEOM_GP_N)
+
+    if CH_XYZ_OLD is not CH_XYZ0 and CH_XYZ_OLD is not CH_XYZ_CUR:
+        DETRUIRE(NOM=CH_XYZ_OLD)
+    CH_XYZ_OLD = CH_XYZ_CUR
+    CH_XYZ_CUR = CH_XYZ_N
+
+
+# ------------------------------------------------------------------
+# Post-procesamiento
+# ------------------------------------------------------------------
+TAB_DEPL = POST_RELEVE_T(
+    ACTION=_F(
+        OPERATION='EXTRACTION',
+        INTITULE='depl_nodo_sup',
+        RESULTAT=RESU,
+        NOM_CHAM='DEPL',
+        NOM_CMP=('DX', 'DY', 'DZ'),
+        GROUP_NO='nodo_sup',
+        MOYE_NOEUD='OUI',
+        TOUT_ORDRE='OUI',
+    )
+)
+
+IMPR_TABLE(TABLE=TAB_DEPL, FORMAT='TABLEAU', SEPARATEUR=';')
+
+IMPR_RESU(
+    FORMAT='MED',
+    UNITE=80,
+    RESU=_F(
+        MAILLAGE=MAIL,
+        RESULTAT=RESU,
+        NOM_CHAM=('DEPL', 'SIEF_ELGA', 'VARI_ELGA'),
+        TOUT_ORDRE='OUI',
+    ),
+)
+
+import shutil
+for fn in ('umat_defgrad.log',):
+    src = '/work/' + fn
+    if os.path.exists(src):
+        shutil.copy(src, '/work/REPE_OUT/' + fn)
+
+FIN()
