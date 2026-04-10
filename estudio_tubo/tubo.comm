@@ -1,0 +1,303 @@
+# coding=utf-8
+# =====================================================================
+# Caso tubo con presion interna — coordenadas de Gauss actualizadas.
+#
+# Geometria:  ri=0.5, ro=1.0, L=2.0
+# Carga:      Presion interna P=50  en Face_int (rampa lineal)
+# CCs:        DX=DY=DZ=0 en ambos extremos (Face_inf, Face_sup)
+# Material:   UMAT elastico lineal, E=1000, nu=0.30
+#
+# STATEV layout (NSTATV = 6):
+#   V1:V3  -> Coords Gauss ACTUALES  (inyectadas por .comm)
+#   V4:V6  -> Coords Gauss ANTERIORES (inyectadas por .comm)
+#
+# Convencion PRES_REP en Code_Aster:
+#   Fuerza = -PRES * n_outward_de_la_cara
+#   La cara Face_int tiene normal apuntando al eje (-r), luego
+#   PRES > 0  =>  fuerza en +r  =>  el tubo se hincha
+# =====================================================================
+
+from run_aster.toolbox import make_shared
+
+DEBUT()
+
+make_shared('/work/libumat_tubo.so', '/work/umat_tubo.for')
+
+# ------------------------------------------------------------------
+# 1. Malla y modelo
+# ------------------------------------------------------------------
+MAIL = LIRE_MAILLAGE(FORMAT='MED', UNITE=20)
+
+MODE = AFFE_MODELE(
+    MAILLAGE=MAIL,
+    AFFE=_F(TOUT='OUI', PHENOMENE='MECANIQUE', MODELISATION='3D'),
+)
+
+# ------------------------------------------------------------------
+# 2. Material (E=1000, nu=0.30)
+# ------------------------------------------------------------------
+MATE = DEFI_MATERIAU(
+    ELAS=_F(E=1000.0, NU=0.30),
+    UMAT=_F(LISTE_COEF=(1000.0, 0.30)),
+)
+
+MAT = AFFE_MATERIAU(
+    MAILLAGE=MAIL,
+    AFFE=_F(TOUT='OUI', MATER=MATE),
+)
+
+# ------------------------------------------------------------------
+# 3. Rampa de carga lineal [0,1]
+# ------------------------------------------------------------------
+RAMPA = DEFI_FONCTION(
+    NOM_PARA='INST',
+    VALE=(0.0, 0.0, 1.0, 1.0),
+    PROL_DROITE='LINEAIRE',
+)
+
+# ------------------------------------------------------------------
+# 4. Cargas:
+#    - Extremo inferior y superior: empotrados (DX=DY=DZ=0)
+#    - Cara interna: presion P=50 (se hinchan via PRES_REP)
+#
+#    With FONC_MULT=RAMPA, at the end:
+#       DX, DY, DZ on ends  = 0 * RAMPA = 0  (siempre)
+#       PRES on Face_int    = 50 * RAMPA(t)   (incrementa linealmente)
+# ------------------------------------------------------------------
+CHAR = AFFE_CHAR_MECA(
+    MODELE=MODE,
+    DDL_IMPO=(
+        _F(GROUP_MA='Face_inf', DX=0.0, DY=0.0, DZ=0.0),
+        _F(GROUP_MA='Face_sup', DX=0.0, DY=0.0, DZ=0.0),
+    ),
+    PRES_REP=_F(GROUP_MA='Face_int', PRES=50.0),
+)
+
+# ------------------------------------------------------------------
+# 5. Pipeline DISC → FORMULE → EVAL → ASSE para inyectar
+#    coordenadas de puntos de Gauss en STATEV
+#
+#    Mismo patron que en cubo_iter_coords.comm.
+# ------------------------------------------------------------------
+
+# 5a. Geometria nodal inicial (campo de coordenadas X,Y,Z en nodos)
+GEOM0 = CREA_CHAMP(
+    TYPE_CHAM='NOEU_GEOM_R',
+    OPERATION='EXTR',
+    NOM_CHAM='GEOMETRIE',
+    MAILLAGE=MAIL,
+)
+
+# 5b. Formulas identidad para el cambio ELGA_GEOM_R → ELGA_NEUT_R
+f_X = FORMULE(VALE='X', NOM_PARA=('X', 'Y', 'Z'))
+f_Y = FORMULE(VALE='Y', NOM_PARA=('X', 'Y', 'Z'))
+f_Z = FORMULE(VALE='Z', NOM_PARA=('X', 'Y', 'Z'))
+
+CH_F = CREA_CHAMP(
+    TYPE_CHAM='ELGA_NEUT_F',
+    OPERATION='AFFE',
+    MODELE=MODE,
+    PROL_ZERO='OUI',
+    AFFE=_F(TOUT='OUI', NOM_CMP=('X1', 'X2', 'X3'),
+            VALE_F=(f_X, f_Y, f_Z)),
+)
+
+# 5c. Discretizar coords nodales iniciales a puntos de Gauss
+GEOM_GP0 = CREA_CHAMP(
+    TYPE_CHAM='ELGA_GEOM_R',
+    OPERATION='DISC',
+    MODELE=MODE,
+    CHAM_GD=GEOM0,
+)
+
+# 5d. EVAL: ELGA_GEOM_R (X,Y,Z) → ELGA_NEUT_R (X1,X2,X3)
+CH_XYZ0 = CREA_CHAMP(
+    TYPE_CHAM='ELGA_NEUT_R',
+    OPERATION='EVAL',
+    CHAM_F=CH_F,
+    CHAM_PARA=GEOM_GP0,
+)
+
+# 5e. ASSE: X1→V1, X2→V2, X3→V3 (coords actuales)
+#           X1→V4, X2→V5, X3→V6 (coords anteriores, iguales en t=0)
+VINI = CREA_CHAMP(
+    TYPE_CHAM='ELGA_VARI_R',
+    OPERATION='ASSE',
+    MODELE=MODE,
+    PROL_ZERO='OUI',
+    ASSE=(
+        _F(TOUT='OUI', CHAM_GD=CH_XYZ0,
+           NOM_CMP='X1', NOM_CMP_RESU='V1'),
+        _F(TOUT='OUI', CHAM_GD=CH_XYZ0,
+           NOM_CMP='X2', NOM_CMP_RESU='V2'),
+        _F(TOUT='OUI', CHAM_GD=CH_XYZ0,
+           NOM_CMP='X3', NOM_CMP_RESU='V3'),
+        _F(TOUT='OUI', CHAM_GD=CH_XYZ0,
+           NOM_CMP='X1', NOM_CMP_RESU='V4'),
+        _F(TOUT='OUI', CHAM_GD=CH_XYZ0,
+           NOM_CMP='X2', NOM_CMP_RESU='V5'),
+        _F(TOUT='OUI', CHAM_GD=CH_XYZ0,
+           NOM_CMP='X3', NOM_CMP_RESU='V6'),
+    ),
+)
+
+# ------------------------------------------------------------------
+# 6. Bucle iterativo sobre pasos de tiempo
+#
+#    En cada paso:
+#      1) Inyectar coords actualizadas en VARI via ETAT_INIT
+#      2) Resolver un incremento con STAT_NON_LINE
+#      3) Extraer DEPL y recalcular coords deformadas:
+#         GEOM_UPD = GEOM0 + DEPL
+#         → DISC → EVAL → CH_XYZ_N  (Gauss coords deformadas)
+#      4) Rotar referencias: OLD ← CUR ← NEW
+# ------------------------------------------------------------------
+n_steps = 5
+dt = 1.0 / n_steps
+
+CH_XYZ_OLD = CH_XYZ0
+CH_XYZ_CUR = CH_XYZ0
+
+for istep in range(n_steps):
+    t_ini = istep * dt
+    t_fin = (istep + 1) * dt
+
+    LINST_I = DEFI_LIST_REEL(
+        DEBUT=t_ini,
+        INTERVALLE=_F(JUSQU_A=t_fin, NOMBRE=1),
+    )
+
+    # 6a. Construir campo VINI_I con coords actuales y anteriores
+    VINI_I = CREA_CHAMP(
+        TYPE_CHAM='ELGA_VARI_R',
+        OPERATION='ASSE',
+        MODELE=MODE,
+        PROL_ZERO='OUI',
+        ASSE=(
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_CUR,
+               NOM_CMP='X1', NOM_CMP_RESU='V1'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_CUR,
+               NOM_CMP='X2', NOM_CMP_RESU='V2'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_CUR,
+               NOM_CMP='X3', NOM_CMP_RESU='V3'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_OLD,
+               NOM_CMP='X1', NOM_CMP_RESU='V4'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_OLD,
+               NOM_CMP='X2', NOM_CMP_RESU='V5'),
+            _F(TOUT='OUI', CHAM_GD=CH_XYZ_OLD,
+               NOM_CMP='X3', NOM_CMP_RESU='V6'),
+        ),
+    )
+
+    comport = _F(
+        RELATION='UMAT',
+        LIBRAIRIE='/work/libumat_tubo.so',
+        NOM_ROUTINE='umat',
+        NB_VARI=6,
+        DEFORMATION='PETIT',
+        TOUT='OUI',
+    )
+
+    # 6b. Resolver el incremento de tiempo
+    if istep == 0:
+        RESU = STAT_NON_LINE(
+            MODELE=MODE,
+            CHAM_MATER=MAT,
+            EXCIT=_F(CHARGE=CHAR, FONC_MULT=RAMPA),
+            COMPORTEMENT=comport,
+            ETAT_INIT=_F(VARI=VINI_I),
+            INCREMENT=_F(LIST_INST=LINST_I),
+            NEWTON=_F(MATRICE='TANGENTE', REAC_ITER=1),
+            CONVERGENCE=_F(RESI_GLOB_RELA=1.0e-8, ITER_GLOB_MAXI=25),
+            ARCHIVAGE=_F(LIST_INST=LINST_I),
+            SOLVEUR=_F(METHODE='MUMPS'),
+        )
+    else:
+        RESU = STAT_NON_LINE(
+            reuse=RESU,
+            MODELE=MODE,
+            CHAM_MATER=MAT,
+            EXCIT=_F(CHARGE=CHAR, FONC_MULT=RAMPA),
+            COMPORTEMENT=comport,
+            ETAT_INIT=_F(EVOL_NOLI=RESU, VARI=VINI_I),
+            INCREMENT=_F(LIST_INST=LINST_I),
+            NEWTON=_F(MATRICE='TANGENTE', REAC_ITER=1),
+            CONVERGENCE=_F(RESI_GLOB_RELA=1.0e-8, ITER_GLOB_MAXI=25),
+            ARCHIVAGE=_F(LIST_INST=LINST_I),
+            SOLVEUR=_F(METHODE='MUMPS'),
+        )
+
+    # 6c. Limpiar temporales del paso
+    DETRUIRE(NOM=LINST_I)
+    DETRUIRE(NOM=VINI_I)
+
+    # 6d. Recalcular coords deformadas para el paso siguiente
+    #     GEOM_UPD = GEOM0 + DEPL  (campo nodal)
+    DEPL_I = CREA_CHAMP(
+        TYPE_CHAM='NOEU_DEPL_R',
+        OPERATION='EXTR',
+        RESULTAT=RESU,
+        NOM_CHAM='DEPL',
+        INST=t_fin,
+    )
+
+    GEOM_UPD = CREA_CHAMP(
+        TYPE_CHAM='NOEU_GEOM_R',
+        OPERATION='ASSE',
+        MAILLAGE=MAIL,
+        ASSE=(
+            _F(TOUT='OUI', CHAM_GD=GEOM0,
+               CUMUL='OUI', COEF_R=1.0,
+               NOM_CMP=('X', 'Y', 'Z')),
+            _F(TOUT='OUI', CHAM_GD=DEPL_I,
+               CUMUL='OUI', COEF_R=1.0,
+               NOM_CMP=('DX', 'DY', 'DZ'),
+               NOM_CMP_RESU=('X', 'Y', 'Z')),
+        ),
+    )
+
+    # Discretizar a Gauss y convertir a NEUT_R
+    GEOM_GP_N = CREA_CHAMP(
+        TYPE_CHAM='ELGA_GEOM_R',
+        OPERATION='DISC',
+        MODELE=MODE,
+        CHAM_GD=GEOM_UPD,
+    )
+
+    CH_XYZ_N = CREA_CHAMP(
+        TYPE_CHAM='ELGA_NEUT_R',
+        OPERATION='EVAL',
+        CHAM_F=CH_F,
+        CHAM_PARA=GEOM_GP_N,
+    )
+
+    # 6e. Rotar referencias: OLD ← CUR ← NEW
+    DETRUIRE(NOM=GEOM_UPD)
+    DETRUIRE(NOM=GEOM_GP_N)
+    DETRUIRE(NOM=DEPL_I)
+
+    if istep > 0:
+        DETRUIRE(NOM=CH_XYZ_OLD)
+
+    CH_XYZ_OLD = CH_XYZ_CUR
+    CH_XYZ_CUR = CH_XYZ_N
+
+# ------------------------------------------------------------------
+# 7. Post-proceso: calcular y exportar campos
+# ------------------------------------------------------------------
+RESU = CALC_CHAMP(
+    reuse=RESU,
+    RESULTAT=RESU,
+    CONTRAINTE=('SIGM_ELNO',),
+    DEFORMATION=('EPSI_ELNO',),
+)
+
+IMPR_RESU(
+    FORMAT='MED',
+    UNITE=80,
+    RESU=_F(RESULTAT=RESU,
+            NOM_CHAM=('DEPL', 'SIEF_ELGA', 'VARI_ELGA',
+                      'SIGM_ELNO', 'EPSI_ELNO')),
+)
+
+FIN()

@@ -1,0 +1,9 @@
+P time_limit 3600
+P memory_limit 2048
+P ncpus 1
+P mpi_nbcpu 1
+P mpi_nbnoeud 1
+F comm tubo.comm D 1
+F med Tubo.med D 20
+F rmed tubo.rmed R 80
+F mess tubo.message R 6
