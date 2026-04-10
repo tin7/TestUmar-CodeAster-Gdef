@@ -12,12 +12,20 @@ C   PROPS(7) = G_rth     modulo de corte r-theta
 C   PROPS(8) = G_rz      modulo de corte r-z
 C   PROPS(9) = G_thz     modulo de corte theta-z
 C
+C Orientacion del eje cilindrico (opcional, default: eje Z global):
+C   PROPS(10) = AX  \  direccion del eje (no necesita ser unitario;
+C   PROPS(11) = AY   > se normaliza internamente). Default (0,0,1).
+C   PROPS(12) = AZ  /
+C   PROPS(13) = CX  \  punto sobre el eje (origen del SC local).
+C   PROPS(14) = CY   > Default (0,0,0).
+C   PROPS(15) = CZ  /
+C
 C Estrategia de rotacion (igual que UMAT4001.f90):
 C   Se construye R_CYL cuyas FILAS son los vectores base locales expresados
 C   en el sistema global cartesiano:
-C         Fila 1: e_r   = ( x/r,  y/r, 0 )
-C         Fila 2: e_th  = (-y/r,  x/r, 0 )
-C         Fila 3: e_z   = ( 0,    0,   1 )
+C         Fila 1: e_r  (radial, perpendicular al eje)
+C         Fila 2: e_th (circunferencial = e_z x e_r)
+C         Fila 3: e_z  (a lo largo del eje = PROPS(10:12) normalizado)
 C   Rotacion de tensor 2do orden:
 C         Global -> Local:  T_loc = R . T_glob . R^T
 C         Local  -> Global: T_glob = R^T . T_loc . R
@@ -59,7 +67,10 @@ C---- Variables locales ---------------------------------------------------
       DOUBLE PRECISION S11,S12,S13,S22,S23,S33,DET3
       DOUBLE PRECISION CCYL(6,6)
       DOUBLE PRECISION R(3,3)
-      DOUBLE PRECISION XP,YP,RAD
+      DOUBLE PRECISION XP,YP,ZP,RAD
+      DOUBLE PRECISION AX,AY,AZ,ANORM
+      DOUBLE PRECISION CX,CY,CZ
+      DOUBLE PRECISION PREL(3),HPROJ,PERP(3),ETH_V(3)
       DOUBLE PRECISION STR_LOC(6),DST_LOC(6),DS_LOC(6)
       DOUBLE PRECISION CCART(6,6)
 
@@ -122,13 +133,54 @@ C     Compliance (simetria de Maxwell: nu_ij/E_i = nu_ji/E_j):
       CCYL(5,5) = GRZ
       CCYL(6,6) = GTHZ
 
-C---- Matriz de rotacion R_CYL (FILAS = ejes locales en global) -----------
+C---- Eje cilindrico: PROPS(10:12) = direccion, PROPS(13:15) = punto ---
 C     Code_Aster 17.4 no puebla COORDS(); se usan STATEV(1:3)
 C     (mismo patron que UMAT4001.f90, seccion 2)
-      XP  = STATEV(1)
-      YP  = STATEV(2)
-      RAD = DSQRT(XP*XP + YP*YP)
+      XP = STATEV(1)
+      YP = STATEV(2)
+      ZP = STATEV(3)
 
+C     Leer direccion del eje (default: eje Z global)
+      IF (NPROPS .GE. 12) THEN
+         AX = PROPS(10)
+         AY = PROPS(11)
+         AZ = PROPS(12)
+      ELSE
+         AX = ZERO
+         AY = ZERO
+         AZ = ONE
+      END IF
+      ANORM = DSQRT(AX*AX + AY*AY + AZ*AZ)
+      IF (ANORM .LT. 1.0D-9) THEN
+         AX = ZERO; AY = ZERO; AZ = ONE
+         ANORM = ONE
+      END IF
+      AX = AX/ANORM; AY = AY/ANORM; AZ = AZ/ANORM
+
+C     Leer punto sobre el eje (default: origen)
+      IF (NPROPS .GE. 15) THEN
+         CX = PROPS(13)
+         CY = PROPS(14)
+         CZ = PROPS(15)
+      ELSE
+         CX = ZERO; CY = ZERO; CZ = ZERO
+      END IF
+
+C     Vector relativo al punto del eje
+      PREL(1) = XP - CX
+      PREL(2) = YP - CY
+      PREL(3) = ZP - CZ
+
+C     Proyectar sobre el eje: h = PREL . a
+      HPROJ = PREL(1)*AX + PREL(2)*AY + PREL(3)*AZ
+
+C     Componente radial: PERP = PREL - h*a
+      PERP(1) = PREL(1) - HPROJ*AX
+      PERP(2) = PREL(2) - HPROJ*AY
+      PERP(3) = PREL(3) - HPROJ*AZ
+      RAD = DSQRT(PERP(1)**2 + PERP(2)**2 + PERP(3)**2)
+
+C     Construir R (filas = ejes locales en global)
       DO I=1,3
          DO J=1,3
             R(I,J) = ZERO
@@ -136,18 +188,19 @@ C     (mismo patron que UMAT4001.f90, seccion 2)
       END DO
 
       IF (RAD .GT. 1.0D-9) THEN
-C        Fila 1: direccion radial   e_r  = ( x/r,  y/r,  0 )
-         R(1,1) =  XP/RAD
-         R(1,2) =  YP/RAD
-         R(1,3) =  ZERO
-C        Fila 2: direccion hoop     e_th = (-y/r,  x/r,  0 )
-         R(2,1) = -YP/RAD
-         R(2,2) =  XP/RAD
-         R(2,3) =  ZERO
-C        Fila 3: direccion axial    e_z  = ( 0,     0,    1 )
-         R(3,1) =  ZERO
-         R(3,2) =  ZERO
-         R(3,3) =  ONE
+C        Fila 1: e_r  = PERP / |PERP|
+         R(1,1) = PERP(1)/RAD
+         R(1,2) = PERP(2)/RAD
+         R(1,3) = PERP(3)/RAD
+C        Fila 3: e_z = eje normalizado
+         R(3,1) = AX; R(3,2) = AY; R(3,3) = AZ
+C        Fila 2: e_th = e_z x e_r  (sistem dextroso)
+         ETH_V(1) = AY*R(1,3) - AZ*R(1,2)
+         ETH_V(2) = AZ*R(1,1) - AX*R(1,3)
+         ETH_V(3) = AX*R(1,2) - AY*R(1,1)
+         R(2,1) = ETH_V(1)
+         R(2,2) = ETH_V(2)
+         R(2,3) = ETH_V(3)
       ELSE
 C        En el eje (r=0): identidad como fallback
          R(1,1) = ONE

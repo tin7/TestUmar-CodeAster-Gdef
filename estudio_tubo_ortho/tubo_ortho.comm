@@ -38,7 +38,9 @@ MODE = AFFE_MODELE(
 
 # ------------------------------------------------------------------
 # 2. Material ortotropo en ejes cilindricos (r, theta, z)
-#    PROPS(1:9) = E_r, E_th, E_z, nu_rth, nu_rz, nu_thz, G_rth, G_rz, G_thz
+#    PROPS(1:9)  = E_r, E_th, E_z, nu_rth, nu_rz, nu_thz, G_rth, G_rz, G_thz
+#    PROPS(10:12) = direccion del eje (ax, ay, az) — defecto (0,0,1) = eje Z
+#    PROPS(13:15) = punto sobre el eje (cx, cy, cz) — defecto (0,0,0)
 # ------------------------------------------------------------------
 MATE = DEFI_MATERIAU(
     ELAS=_F(E=1000.0, NU=0.25),      # solo para STAT_NON_LINE (ELAS requerido)
@@ -52,6 +54,12 @@ MATE = DEFI_MATERIAU(
         300.0,    # G_rth
         350.0,    # G_rz
         400.0,    # G_thz
+        0.0,      # AX — componente X del eje cilindrico
+        0.0,      # AY — componente Y del eje cilindrico
+        1.0,      # AZ — componente Z del eje cilindrico (= eje Z global)
+        0.0,      # CX — punto sobre el eje (origen en X)
+        0.0,      # CY — punto sobre el eje (origen en Y)
+        0.0,      # CZ — punto sobre el eje (origen en Z)
     )),
 )
 
