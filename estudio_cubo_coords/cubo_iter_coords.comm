@@ -55,8 +55,10 @@ RAMPA = DEFI_FONCTION(
 
 CHAR = AFFE_CHAR_MECA(
     MODELE=MODE,
-    DDL_IMPO=_F(GROUP_MA='Face_inf', DX=0.0, DY=0.0, DZ=0.0),
-    FORCE_FACE=_F(GROUP_MA='Face_sup', FX=50.0, FY=0.0, FZ=0.0),
+    DDL_IMPO=(_F(GROUP_MA='Face_inf', DX=0.0, DY=0.0, DZ=0.0),
+              _F(GROUP_MA='Face_sup', DX=0.02),),
+    #FORCE_FACE=_F(GROUP_MA='Face_sup', FX=10.0),
+    
 )
 
 # ------------------------------------------------------------------
