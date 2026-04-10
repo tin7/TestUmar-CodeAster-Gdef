@@ -250,6 +250,20 @@ C---- Registro de coordenadas: primer GP de cada elemento -----------------
          CLOSE(99)
       END IF
 
+C---- Registro de ejes locales: solo primer paso+incremento, primer GP ----
+C     KSTEP=1 KINC=1 garantiza que solo se escribe en el primer llamado
+      IF (KSTEP.EQ.1 .AND. KINC.EQ.1 .AND. NPT.EQ.1) THEN
+         OPEN(UNIT=98,FILE='/work/umat_axes.log',
+     1        POSITION='APPEND',STATUS='UNKNOWN')
+         WRITE(98,'(A,I6,A,3F10.5,A,3F8.4,A,3F8.4,A,3F8.4)')
+     1     ' Elem=',NOEL,
+     2     ' P=',STATEV(1),STATEV(2),STATEV(3),
+     3     ' er=',R(1,1),R(1,2),R(1,3),
+     4     ' eth=',R(2,1),R(2,2),R(2,3),
+     5     ' ez=',R(3,1),R(3,2),R(3,3)
+         CLOSE(98)
+      END IF
+
       RETURN
       END
 

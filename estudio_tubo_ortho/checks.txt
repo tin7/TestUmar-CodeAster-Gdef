@@ -1,0 +1,24 @@
+============================================================
+VERIFICACION DE EJES LOCALES (KINC=1, NPT=1)
+============================================================
+
+1. NORMAS (deben ser 1.0):
+   |e_r|  : min=0.999960  max=1.000031
+   |e_th| : min=0.999960  max=1.000031
+   |e_z|  : min=1.000000  max=1.000000
+
+2. ORTOGONALIDAD (productos punto, deben ser ~0):
+   e_r·e_th: max|·|=0.00e+00
+   e_r·e_z:  max|·|=0.00e+00
+   e_th·e_z: max|·|=0.00e+00
+
+3. SISTEMA DEXTRORSO: |e_r x e_th - e_z| (debe ser ~0):
+   max error = 8.08e-05
+
+4. ALINEACION RADIAL: |e_r - (x,y,0)/r| (eje=Z, debe ser ~0):
+   max error = 4.71e-05
+
+5. COMPONENTE CONSTANTE e_z:
+   e_z (todas las entradas): mean=[0. 0. 1.], std=[0. 0. 0.]
+
+============================================================
