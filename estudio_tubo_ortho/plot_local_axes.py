@@ -133,10 +133,10 @@ for ax, z_target in zip(axes_arr, z_show):
     ax.plot(ro*np.cos(theta), ro*np.sin(theta), 'k-',  lw=0.8, alpha=0.4, label='ro')
 
     # Flechas e_r y e_th
-    # scale=8: flechas de longitud 1/8 = 0.125 unidades de datos
-    ax.quiver(px, py, er_x,  er_y,  color='red',  scale=8, scale_units='xy',
+    # scale=13: flechas de longitud 1/13 ≈ 0.077 unidades de datos
+    ax.quiver(px, py, er_x,  er_y,  color='red',  scale=13, scale_units='xy',
               angles='xy', width=0.004, headwidth=4, label='e_r',  alpha=0.9)
-    ax.quiver(px, py, eth_x, eth_y, color='blue', scale=8, scale_units='xy',
+    ax.quiver(px, py, eth_x, eth_y, color='blue', scale=13, scale_units='xy',
               angles='xy', width=0.004, headwidth=4, label='e_θ', alpha=0.9)
 
     ax.scatter(px, py, s=15, color='gray', zorder=5)
@@ -165,13 +165,13 @@ for mask, label_sfx, alpha in [(mask_3d, f'z≈{z_mid:.2f}', 0.9),
                                  (mask_end, f'z≈{z_vals[0]:.2f}', 0.5)]:
     px, py, pz = P[mask, 0], P[mask, 1], P[mask, 2]
     ax3.quiver(px, py, pz,
-               ER[mask,0]*scale*8, ER[mask,1]*scale*8, ER[mask,2]*scale*8,
+               ER[mask,0]*scale*5, ER[mask,1]*scale*5, ER[mask,2]*scale*5,
                color='red', alpha=alpha, label=f'e_r  {label_sfx}')
     ax3.quiver(px, py, pz,
-               ETH[mask,0]*scale*8, ETH[mask,1]*scale*8, ETH[mask,2]*scale*8,
+               ETH[mask,0]*scale*5, ETH[mask,1]*scale*5, ETH[mask,2]*scale*5,
                color='blue', alpha=alpha, label=f'e_θ  {label_sfx}')
     ax3.quiver(px, py, pz,
-               EZ[mask,0]*scale*8, EZ[mask,1]*scale*8, EZ[mask,2]*scale*8,
+               EZ[mask,0]*scale*5, EZ[mask,1]*scale*5, EZ[mask,2]*scale*5,
                color='green', alpha=alpha, label=f'e_z  {label_sfx}')
     ax3.scatter(px, py, pz, s=20, color='gray', zorder=5)
 
